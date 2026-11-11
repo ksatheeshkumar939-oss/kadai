@@ -1,389 +1,191 @@
+﻿"use client";
 
-"use client";
+import { useCallback, useEffect, useState } from "react";
+import { friendlyError } from "@/lib/errors";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+type Product = {
+  id: string;
+  name: string;
+  price: number | string;
+  image_url: string;
+};
 
-const MAX_FILE_SIZE = 4 * 1024 * 1024;
+type Order = {
+  id: string;
+  created_at?: string;
+  buyer_name?: string | null;
+  type?: string;
+  total?: number | string;
+  amount?: number | string;
+  status?: string;
+  product_name?: string;
+  name?: string;
+  product?: { name?: string } | null;
+  products?: { name?: string } | null;
+};
 
-const ALLOWED_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-];
+const STATUS: Record<string, { label: string; cls: string }> = {
+  paid: { label: "Paid", cls: "bg-green-100 text-green-800" },
+  fully_paid: { label: "Fully paid", cls: "bg-green-100 text-green-800" },
+  pending: { label: "Pending", cls: "bg-amber-100 text-amber-800" },
+  partially_paid: { label: "Partially paid", cls: "bg-blue-100 text-blue-800" },
+};
 
-export default function NewProductPage() {
-  const router = useRouter();
+function Spinner() {
+  return (
+    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+  );
+}
 
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+function orderProduct(o: Order) {
+  return o.product_name ?? o.product?.name ?? o.products?.name ?? o.name ?? "-";
+}
 
-  const [note, setNote] = useState("");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
-  const [details, setDetails] = useState("");
-
-  const [generating, setGenerating] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-
-  const [message, setMessage] = useState("");
+export default function SellerDashboard() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [pRes, oRes] = await Promise.all([
+        fetch("/api/products", { cache: "no-store" }),
+        fetch("/api/orders", { cache: "no-store" }),
+      ]);
+      if (!pRes.ok || !oRes.ok) {
+        throw new Error("We couldn't load your dashboard. Please try again.");
+      }
+      const p = await pRes.json();
+      const o = await oRes.json();
+      setProducts(Array.isArray(p) ? p : p.products ?? []);
+      setOrders(Array.isArray(o) ? o : o.orders ?? []);
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    return () => {
-      if (preview) URL.revokeObjectURL(preview);
-    };
-  }, [preview]);
-
-  function handleFileChange(
-    event: React.ChangeEvent<HTMLInputElement>
-  ) {
-    const selected = event.target.files?.[0];
-
-    setError("");
-    setMessage("");
-    setImageUrl("");
-    setFile(null);
-    setPreview("");
-
-    if (!selected) return;
-
-    if (selected.size > MAX_FILE_SIZE) {
-      setError("File too large. Please select an image under 4 MB.");
-      event.target.value = "";
-      return;
-    }
-
-    if (!ALLOWED_TYPES.includes(selected.type)) {
-      setError("Only photos allowed. Please select JPG, PNG or WEBP.");
-      event.target.value = "";
-      return;
-    }
-
-    setFile(selected);
-    setPreview(URL.createObjectURL(selected));
-  }
-
-  async function handleGenerate() {
-    if (!file) {
-      setError("Please upload a product photo first.");
-      return;
-    }
-
-    setGenerating(true);
-    setError("");
-    setMessage("AI is analyzing your product photo. Please wait...");
-
-    try {
-      const formData = new FormData();
-
-      formData.append("file", file);
-
-      formData.append(
-        "note",
-        note.trim() || "Create a product listing based on this product image."
-      );
-
-      const response = await fetch("/api/ai/listing", {
-        method: "POST",
-        body: formData,
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || "AI generation failed.");
-      }
-
-      if (result.image_url) {
-        setImageUrl(result.image_url);
-      }
-
-      if (result.ai_failed) {
-        setMessage(
-          "AI is busy, please fill the details yourself."
-        );
-        return;
-      }
-
-      setName(result.name || "");
-      setDescription(result.description || "");
-      setPrice(
-        result.suggested_price_usd != null
-          ? String(result.suggested_price_usd)
-          : ""
-      );
-      setDetails(result.details || "");
-
-      setMessage("Product details generated successfully!");
-    } catch (err) {
-      setMessage("");
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong. Please try again."
-      );
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function handlePublish(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
-
-    setError("");
-    setMessage("");
-
-    if (!name.trim()) {
-      setError("Please enter a product name.");
-      return;
-    }
-
-    if (!description.trim()) {
-      setError("Please enter a product description.");
-      return;
-    }
-
-    const numericPrice = Number(price);
-
-    if (!price.trim() || !Number.isFinite(numericPrice) || numericPrice <= 0) {
-      setError("Price must be greater than $0.");
-      return;
-    }
-
-    if (!imageUrl) {
-      setError("Please upload a product photo and generate the listing first.");
-      return;
-    }
-
-    setPublishing(true);
-
-    try {
-      const response = await fetch("/api/products", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          description: description.trim(),
-          price: numericPrice,
-          image_url: imageUrl,
-          details: details.trim()
-            ? { "Product details": details.trim() }
-            : {},
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || "Could not publish product.");
-      }
-
-      setMessage("Product published successfully!");
-      router.push("/seller");
-      router.refresh();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Publishing failed. Please try again."
-      );
-    } finally {
-      setPublishing(false);
-    }
-  }
+    load();
+  }, [load]);
 
   return (
-    <main className="mx-auto max-w-3xl p-4 sm:p-6">
-      <div className="mb-6">
-        <button
-          type="button"
-          onClick={() => router.push("/seller")}
-          className="mb-4 text-sm text-gray-500 hover:text-gray-900"
-        >
-          ← Back to dashboard
-        </button>
-
-        <h1 className="text-2xl font-bold text-gray-900">
-          Add a new product
-        </h1>
-
-        <p className="mt-1 text-sm text-gray-500">
-          Upload a photo and let AI help create your product listing.
-        </p>
-      </div>
-
-      <div className="space-y-6">
-        <section className="rounded-2xl border bg-white p-4 sm:p-6">
-          <h2 className="mb-4 text-lg font-semibold">
-            1. Product photo
-          </h2>
-
-          <label className="block cursor-pointer rounded-xl border-2 border-dashed border-gray-300 p-6 text-center hover:border-[#0F766E]">
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-
-            <span className="text-sm font-medium text-gray-700">
-              Click to upload product photo
-            </span>
-
-            <span className="mt-1 block text-xs text-gray-500">
-              JPG, PNG or WEBP · Maximum 4 MB
-            </span>
-          </label>
-
-          {preview && (
-            <div className="mt-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={preview}
-                alt="Product preview"
-                className="max-h-64 w-full rounded-xl object-contain"
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                {file?.name}
-              </p>
-            </div>
-          )}
-
-          <div className="mt-5">
-            <label className="mb-2 block text-sm font-medium">
-              Optional product note
-            </label>
-
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={3}
-              placeholder="Example: Homemade chocolate brownie with chocolate chips..."
-              className="w-full rounded-xl border p-3 text-sm outline-none focus:border-[#0F766E]"
-            />
-          </div>
-
+    <main className="mx-auto min-h-dvh max-w-5xl p-4 sm:p-6">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">Seller dashboard</h1>
+        <div className="flex gap-2">
           <button
             type="button"
-            onClick={handleGenerate}
-            disabled={!file || generating || publishing}
-            className="mt-4 w-full rounded-xl bg-[#0F766E] px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={load}
+            disabled={loading}
+            aria-busy={loading}
+            className="flex h-11 items-center justify-center gap-2 rounded-xl border bg-white px-4 text-sm font-medium text-gray-800 disabled:opacity-60"
           >
-            {generating
-              ? "Generating your listing..."
-              : "✨ Generate with AI"}
+            {loading && (
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
+            )}
+            {loading ? "Refreshing..." : "Refresh"}
           </button>
-        </section>
-
-        {message && (
-          <p
-            role="status"
-            className="rounded-xl bg-blue-50 p-3 text-sm text-blue-800"
+          <a
+            href="/seller/new"
+            className="flex h-11 items-center justify-center rounded-xl bg-[#0F766E] px-4 text-sm font-medium text-white"
           >
-            {message}
-          </p>
-        )}
-
-        {error && (
-          <p
-            role="alert"
-            className="rounded-xl bg-red-50 p-3 text-sm text-red-700"
-          >
-            {error}
-          </p>
-        )}
-
-        <form
-          onSubmit={handlePublish}
-          className="space-y-5 rounded-2xl border bg-white p-4 sm:p-6"
-        >
-          <div>
-            <h2 className="text-lg font-semibold">
-              2. Product details
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Review and edit the AI-generated information before publishing.
-            </p>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">
-              Product name *
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={100}
-              required
-              placeholder="Enter product name"
-              className="w-full rounded-xl border p-3 text-sm outline-none focus:border-[#0F766E]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">
-              Description *
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={1000}
-              rows={4}
-              required
-              placeholder="Describe your product"
-              className="w-full rounded-xl border p-3 text-sm outline-none focus:border-[#0F766E]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">
-              Price (USD) *
-            </label>
-            <div className="flex items-center rounded-xl border px-3 focus-within:border-[#0F766E]">
-              <span className="text-gray-500">$</span>
-              <input
-                type="number"
-                min="0.01"
-                max="10000"
-                step="0.01"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                required
-                placeholder="0.00"
-                className="w-full p-3 text-sm outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">
-              Details
-            </label>
-            <textarea
-              value={details}
-              onChange={(e) => setDetails(e.target.value)}
-              rows={3}
-              placeholder="Additional product details"
-              className="w-full rounded-xl border p-3 text-sm outline-none focus:border-[#0F766E]"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={publishing || generating}
-            className="w-full rounded-xl bg-gray-900 px-5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {publishing ? "Publishing..." : "Publish product"}
-          </button>
-        </form>
+            + Add product
+          </a>
+        </div>
       </div>
+
+      {error && (
+        <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+
+      <section className="mb-8">
+        <h2 className="mb-3 text-lg font-semibold">Products</h2>
+        {products.length === 0 && !loading ? (
+          <p className="rounded-xl border bg-white p-4 text-sm text-gray-500">
+            No products yet. Click + Add product to create one.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+            {products.map((p) => (
+              <div key={p.id} className="overflow-hidden rounded-xl border bg-white">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={p.image_url}
+                  alt={p.name}
+                  className="aspect-square w-full object-cover"
+                />
+                <div className="p-3">
+                  <p className="truncate text-sm font-medium">{p.name}</p>
+                  <p className="text-sm text-gray-600">${Number(p.price).toFixed(2)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">Orders</h2>
+        {orders.length === 0 && !loading ? (
+          <p className="rounded-xl border bg-white p-4 text-sm text-gray-500">
+            No orders yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border bg-white">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="px-3 py-3 font-medium">Date</th>
+                  <th className="px-3 py-3 font-medium">Product</th>
+                  <th className="px-3 py-3 font-medium">Buyer</th>
+                  <th className="hidden px-3 py-3 font-medium sm:table-cell">Type</th>
+                  <th className="px-3 py-3 font-medium">Amount</th>
+                  <th className="px-3 py-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map((o) => {
+                  const s = STATUS[o.status ?? ""] ?? {
+                    label: o.status ?? "-",
+                    cls: "bg-gray-100 text-gray-700",
+                  };
+                  const amount = Number(o.total ?? o.amount ?? 0);
+                  return (
+                    <tr key={o.id} className="border-b last:border-0">
+                      <td className="whitespace-nowrap px-3 py-3">
+                        {o.created_at ? new Date(o.created_at).toLocaleDateString() : "-"}
+                      </td>
+                      <td className="px-3 py-3">{orderProduct(o)}</td>
+                      <td className="px-3 py-3">{o.buyer_name || "-"}</td>
+                      <td className="hidden px-3 py-3 capitalize sm:table-cell">
+                        {o.type || "-"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3">${amount.toFixed(2)}</td>
+                      <td className="px-3 py-3">
+                        <span
+                          className={
+                            "inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium " +
+                            s.cls
+                          }
+                        >
+                          {s.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </main>
   );
 }
