@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -6,7 +6,7 @@ import Link from "next/link";
 
 type State =
   | { kind: "loading" }
-  | { kind: "done"; productName: string; amount: string }
+  | { kind: "done"; productName: string; amount: string; payKind: "single" | "share"; orderId?: string }
   | { kind: "error"; message: string };
 
 export default function ReturnClient() {
@@ -31,9 +31,15 @@ export default function ReturnClient() {
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Something went wrong, please try again.");
-        setState({ kind: "done", productName: data.productName, amount: data.amount });
+        setState({
+          kind: "done",
+          productName: data.productName,
+          amount: data.amount,
+          payKind: data.kind === "share" ? "share" : "single",
+          orderId: data.orderId,
+        });
       })
-      .catch((e) =>
+      .catch(() =>
         setState({
           kind: "error",
           message: "We couldn't confirm your payment. If money was taken, please contact the seller.",
@@ -62,18 +68,31 @@ export default function ReturnClient() {
     );
   }
 
+  const isShare = state.payKind === "share";
+
   return (
     <div className="rounded-xl border p-6 text-center">
       <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-2xl text-green-700">
         &#10003;
       </div>
-      <h1 className="mb-2 text-xl font-semibold">Order confirmed</h1>
+      <h1 className="mb-2 text-xl font-semibold">
+        {isShare ? "Your share is paid" : "Order confirmed"}
+      </h1>
       <p className="mb-4 text-gray-600">
         {state.productName} - ${state.amount}
       </p>
-      <Link href="/shop" className="inline-block rounded-xl bg-[#0F766E] px-5 py-2 text-white">
-        Back to shop
-      </Link>
+      {isShare && state.orderId ? (
+        <Link
+          href={`/split/${state.orderId}`}
+          className="inline-block rounded-xl bg-[#0F766E] px-5 py-2 text-white"
+        >
+          View group tracker
+        </Link>
+      ) : (
+        <Link href="/shop" className="inline-block rounded-xl bg-[#0F766E] px-5 py-2 text-white">
+          Back to shop
+        </Link>
+      )}
     </div>
   );
 }
