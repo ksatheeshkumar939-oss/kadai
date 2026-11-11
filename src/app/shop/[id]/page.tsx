@@ -1,8 +1,9 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { friendlyError } from "@/lib/errors";
 
 type Product = {
   id: string;
@@ -25,7 +26,7 @@ function Spinner() {
   );
 }
 
-export default function ProductPage() {
+function ProductPageInner() {
   const { id } = useParams<{ id: string }>();
   const [product, setProduct] = useState<Product | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "missing">("loading");
@@ -87,7 +88,7 @@ export default function ProductPage() {
     } catch {
       setMessages([
         ...next,
-        { role: "assistant", content: "Sorry, I could not answer that right now. Please try again." },
+        { role: "assistant", content: "Sorry, I couldn't answer that. Please try again." },
       ]);
     } finally {
       setSending(false);
@@ -110,7 +111,7 @@ export default function ProductPage() {
       }
       window.location.href = data.approveUrl; // stays disabled until the page leaves
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong, please try again.");
+      setError(friendlyError(e));
       { setPaying(false); payLock.current = false; }
     }
   }
@@ -121,7 +122,7 @@ export default function ProductPage() {
 
   if (state === "missing" || !product) {
     return (
-      <main className="flex min-h-screen items-center justify-center p-6">
+      <main className="flex min-h-dvh items-center justify-center p-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold">Product not found</h1>
           <Link href="/shop" className="mt-4 inline-block text-[#0F766E] underline">
@@ -136,7 +137,7 @@ export default function ProductPage() {
   const details = Object.entries(product.details ?? {});
 
   return (
-    <main className="min-h-screen bg-[#FAFAF8] text-[#202B29]">
+    <main className="min-h-dvh bg-[#FAFAF8] text-[#202B29]">
       <header className="border-b border-gray-100 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
           <Link href="/shop" className="text-2xl font-extrabold text-[#0F766E]">
@@ -213,7 +214,7 @@ export default function ProductPage() {
                 {paying && <Spinner />}
                 {paying ? "Opening PayPal..." : "Confirm & pay $" + price}
               </button>
-            )}
+            )} {confirmCheckout && error && (<p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>)}
             <div ref={bottomRef} />
           </div>
           <form
@@ -227,7 +228,7 @@ export default function ProductPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               maxLength={500}
-              placeholder="Ask about this product..."
+              disabled={sending} placeholder="Ask about this product..."
               className="flex-1 rounded-xl border p-3 text-base sm:text-sm"
             />
             <button
@@ -241,5 +242,13 @@ export default function ProductPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function ProductPage() {
+  return (
+    <Suspense fallback={<main className="p-6 text-gray-500">Loading...</main>}>
+      <ProductPageInner />
+    </Suspense>
   );
 }
