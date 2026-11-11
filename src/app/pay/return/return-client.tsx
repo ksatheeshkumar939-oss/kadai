@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -36,7 +36,7 @@ export default function ReturnClient() {
       .catch((e) =>
         setState({
           kind: "error",
-          message: e instanceof Error ? e.message : "Something went wrong, please try again.",
+          message: "We couldn't confirm your payment. If money was taken, please contact the seller.",
         })
       );
   }, [token]);
