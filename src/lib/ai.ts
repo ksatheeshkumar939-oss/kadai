@@ -1,14 +1,12 @@
-
-
-import "server-only";
+﻿import "server-only";
 
 import { google } from "@ai-sdk/google";
 import { groq } from "@ai-sdk/groq";
 import { generateText, Output } from "ai";
 import type { z } from "zod";
 
-const TIMEOUT_MS = 60_000;
-const MAX_RETRIES = 1;
+const TIMEOUT_MS = 25_000;
+const MAX_RETRIES = 0;
 
 function getGeminiModel() {
   const model = process.env.GEMINI_MODEL;
@@ -45,6 +43,8 @@ function createPrompt(prompt: string, image?: ImageInput) {
   ];
 }
 
+const AI_UNAVAILABLE = "AI service is temporarily unavailable. Please try again.";
+
 export async function aiJson<T>(
   prompt: string,
   schema: z.ZodType<T>,
@@ -62,27 +62,28 @@ export async function aiJson<T>(
     console.log("AI JSON: Gemini success");
     return result.output;
   } catch (geminiError) {
-    console.error("GEMINI FAILED - Trying Groq fallback:", geminiError);
+    console.error("GEMINI FAILED:", geminiError);
 
+    // Groq cannot read photos, so with a photo we stop here.
+    if (image) {
+      throw new Error(AI_UNAVAILABLE);
+    }
+
+    console.error("Trying Groq fallback");
     try {
       const result = await generateText({
         model: getGroqModel(),
         output: Output.object({ schema }),
-        prompt: createPrompt(prompt, image),
+        prompt,
         timeout: TIMEOUT_MS,
         maxRetries: MAX_RETRIES,
       });
 
-      console.log(
-        image
-          ? "AI JSON: Groq Vision fallback success"
-          : "AI JSON: Groq text fallback success"
-      );
-
+      console.log("AI JSON: Groq text fallback success");
       return result.output;
     } catch (groqError) {
       console.error("GROQ FALLBACK FAILED:", groqError);
-      throw new Error("AI service is temporarily unavailable. Please try again.");
+      throw new Error(AI_UNAVAILABLE);
     }
   }
 }
@@ -113,7 +114,7 @@ export async function aiText(prompt: string): Promise<string> {
       return result.text;
     } catch (groqError) {
       console.error("GROQ TEXT FAILED:", groqError);
-      throw new Error("AI service is temporarily unavailable. Please try again.");
+      throw new Error(AI_UNAVAILABLE);
     }
   }
 }
