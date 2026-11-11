@@ -1,7 +1,6 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { friendlyError } from "@/lib/errors";
 
 const MAX_FILE_SIZE = 4 * 1024 * 1024;
@@ -14,8 +13,6 @@ function Spinner() {
 }
 
 export default function NewProductPage() {
-  const router = useRouter();
-
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -142,7 +139,7 @@ export default function NewProductPage() {
     }
 
     if (!imageUrl) {
-      setError("Please upload a product photo and generate the listing first.");
+      setError("Please upload a product photo first, then click Generate with AI once so the photo is saved.");
       return;
     }
 
@@ -166,7 +163,7 @@ export default function NewProductPage() {
         throw new Error(result.error || "Could not publish the product. Please try again.");
       }
 
-      // Full page redirect. Stay in the "Publishing..." state while the page leaves.
+      // Full page load. Stay in the "Publishing..." state while the page leaves.
       window.location.href = "/seller";
     } catch (err) {
       setError(friendlyError(err));
@@ -177,13 +174,12 @@ export default function NewProductPage() {
   return (
     <main className="mx-auto min-h-dvh max-w-3xl p-4 sm:p-6">
       <div className="mb-6">
-        <button
-          type="button"
-          onClick={() => { window.location.href = "/seller"; }}
-          className="mb-4 text-sm text-gray-500 hover:text-gray-900"
+        <a
+          href="/seller"
+          className="mb-4 inline-block text-sm text-gray-500 hover:text-gray-900"
         >
           {"\u2190 Back to dashboard"}
-        </button>
+        </a>
 
         <h1 className="text-2xl font-bold text-gray-900">Add a new product</h1>
         <p className="mt-1 text-sm text-gray-500">
