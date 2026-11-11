@@ -1,114 +1,54 @@
 
-import "server-only";
+export function listingPrompt(note: string): string {
+  return `
+You are an AI product listing assistant for KADAI.
 
-import { google } from "@ai-sdk/google";
-import { groq } from "@ai-sdk/groq";
-import { generateText, Output } from "ai";
-import type { z } from "zod";
+Create a clear and attractive product listing from this seller's note:
+"${note}"
 
-const TIMEOUT_MS = 20_000;
-
-function getGeminiModel() {
-  const model = process.env.GEMINI_MODEL;
-
-  if (!model) {
-    throw new Error("GEMINI_MODEL is not configured");
-  }
-
-  return google(model);
+Return product details in a simple, accurate format.
+Never invent prices, quantities, or product specifications.
+`;
 }
 
-function getGroqModel() {
-  const model = process.env.GROQ_MODEL;
+export function shopAssistantPrompt(input: {
+  shopName: string;
+  name: string;
+  price: number;
+  description: string;
+  details: string;
+  splitEnabled: boolean;
+}): string {
+  return `
+You are the shopping assistant for ${input.shopName}.
 
-  if (!model) {
-    throw new Error("GROQ_MODEL is not configured");
-  }
+Product: ${input.name}
+Price: ${input.price}
+Description: ${input.description}
+Details: ${input.details}
+Split payment enabled: ${input.splitEnabled}
 
-  return groq(model);
+Answer customer questions clearly and politely.
+Use only the supplied product information.
+Never invent product details or payment status.
+`;
 }
 
-type ImageInput = string | Uint8Array;
+export function reminderPrompt(input: {
+  productName: string;
+  pendingShares: number;
+  appBaseUrl: string;
+  orderId: string;
+}): string {
+  return `
+Write a short, friendly WhatsApp payment reminder.
 
-/**
- * Generates structured JSON using Gemini.
- * Falls back to Groq for text-only requests.
- * Images are never sent to Groq.
- */
-export async function aiJson<T>(
-  prompt: string,
-  schema: z.ZodType<T>,
-  image?: ImageInput
-): Promise<T> {
-  try {
-    const result = await generateText({
-      model: getGeminiModel(),
-      output: Output.object({ schema }),
-      prompt: image
-        ? [
-            {
-              role: "user" as const,
-              content: [
-                { type: "text" as const, text: prompt },
-                { type: "image" as const, image },
-              ],
-            },
-          ]
-        : prompt,
-      timeout: TIMEOUT_MS,
-      maxRetries: 0,
-    });
+Product: ${input.productName}
+Pending amount: ${input.pendingShares}
+Payment link: ${input.appBaseUrl}
+Order ID: ${input.orderId}
 
-    return result.output;
-  } catch (geminiError) {
-    // Groq is text-only. Never send images to Groq.
-    if (image) {
-      throw geminiError;
-    }
-
-    try {
-      const result = await generateText({
-        model: getGroqModel(),
-        output: Output.object({ schema }),
-        prompt,
-        timeout: TIMEOUT_MS,
-        maxRetries: 0,
-      });
-
-      return result.output;
-    } catch {
-      throw new Error("AI service is unavailable. Please try again.");
-    }
-  }
+Keep the message polite and concise.
+Do not claim payment has been completed.
+`;
 }
-
-/**
- * Generates plain text using Gemini.
- * Falls back to Groq if Gemini fails.
- */
-export async function aiText(prompt: string): Promise<string> {
-  try {
-    const result = await generateText({
-      model: getGeminiModel(),
-      prompt,
-      timeout: TIMEOUT_MS,
-      maxRetries: 0,
-    });
-
-    return result.text;
-  } catch {
-    try {
-      const result = await generateText({
-        model: getGroqModel(),
-        prompt,
-        timeout: TIMEOUT_MS,
-        maxRetries: 0,
-      });
-
-      return result.text;
-    } catch {
-      throw new Error("AI service is unavailable. Please try again.");
-    }
-  }
-}
-
