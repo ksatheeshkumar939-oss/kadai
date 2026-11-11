@@ -21,7 +21,7 @@ export default function ShopGrid() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <p className="text-gray-500">Loading...</p>;
+  if (loading) return <div className="mx-auto mt-10 h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-[#0F766E]" />;
   if (error) return <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>;
   if (products.length === 0) return <p className="text-gray-500">No products yet. Check back soon!</p>;
 

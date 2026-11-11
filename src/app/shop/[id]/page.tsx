@@ -36,7 +36,7 @@ export default function ProductPage() {
   const [paying, setPaying] = useState(false);
   const [buyerName, setBuyerName] = useState("");
   const [error, setError] = useState("");
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null); const payLock = useRef(false);
 
   useEffect(() => {
     fetch("/api/products", { cache: "no-store" })
@@ -59,7 +59,7 @@ export default function ProductPage() {
   // If the buyer presses Back from PayPal, make the buttons usable again
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => {
-      if (e.persisted) setPaying(false);
+      if (e.persisted) { setPaying(false); payLock.current = false; }
     };
     window.addEventListener("pageshow", onShow);
     return () => window.removeEventListener("pageshow", onShow);
@@ -95,7 +95,7 @@ export default function ProductPage() {
   }
 
   async function pay() {
-    if (paying || !product) return;
+    if (payLock.current || !product) return; payLock.current = true;
     setPaying(true);
     setError("");
     try {
@@ -111,7 +111,7 @@ export default function ProductPage() {
       window.location.href = data.approveUrl; // stays disabled until the page leaves
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong, please try again.");
-      setPaying(false);
+      { setPaying(false); payLock.current = false; }
     }
   }
 
@@ -174,7 +174,7 @@ export default function ProductPage() {
             onChange={(e) => setBuyerName(e.target.value)}
             maxLength={60}
             placeholder="Your name (optional)"
-            className="mt-4 w-full rounded-xl border bg-white p-3 text-sm"
+            className="mt-4 w-full rounded-xl border bg-white p-3 text-base sm:text-sm"
           />
           <button
             onClick={pay}
@@ -228,7 +228,7 @@ export default function ProductPage() {
               onChange={(e) => setInput(e.target.value)}
               maxLength={500}
               placeholder="Ask about this product..."
-              className="flex-1 rounded-xl border p-3 text-sm"
+              className="flex-1 rounded-xl border p-3 text-base sm:text-sm"
             />
             <button
               type="submit"
