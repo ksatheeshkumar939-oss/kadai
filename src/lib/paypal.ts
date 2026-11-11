@@ -2,6 +2,7 @@
 import "server-only";
 
 const BASE = "https://api-m.sandbox.paypal.com"; // sandbox only
+const APP_BASE_URL = (process.env.APP_BASE_URL ?? "").trim().replace(/\/+$/, "");
 
 async function getAccessToken(): Promise<string> {
   const auth = Buffer.from(
@@ -55,8 +56,8 @@ export async function createPayPalOrder(
             brand_name: process.env.SHOP_NAME?.slice(0, 127) || "Kadai",
             user_action: "PAY_NOW",
             shipping_preference: "NO_SHIPPING",
-            return_url: `${process.env.APP_BASE_URL}/pay/return`,
-            cancel_url: `${process.env.APP_BASE_URL}/pay/cancel`,
+            return_url: `${APP_BASE_URL}/pay/return`,
+            cancel_url: `${APP_BASE_URL}/pay/cancel`,
           },
         },
       },
