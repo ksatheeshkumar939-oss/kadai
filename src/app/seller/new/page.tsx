@@ -179,7 +179,7 @@ export default function NewProductPage() {
       <div className="mb-6">
         <button
           type="button"
-          onClick={() => router.push("/seller")}
+          onClick={() => { window.location.href = "/seller"; }}
           className="mb-4 text-sm text-gray-500 hover:text-gray-900"
         >
           {"\u2190 Back to dashboard"}
