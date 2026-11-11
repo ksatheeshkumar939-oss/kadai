@@ -1,4 +1,3 @@
-
 export function listingPrompt(note: string): string {
   return `
 You are an AI product listing assistant for KADAI.
@@ -36,19 +35,25 @@ Never invent product details or payment status.
 
 export function reminderPrompt(input: {
   productName: string;
-  pendingShares: number;
-  appBaseUrl: string;
-  orderId: string;
+  pending: { name: string; amount: string }[];
+  link: string;
 }): string {
+  const lines = input.pending.map((p) => `${p.name}: $${p.amount}`).join("\n");
   return `
-Write a short, friendly WhatsApp payment reminder.
+Write a short, friendly WhatsApp group message reminding these friends
+to pay their share for a group gift.
 
 Product: ${input.productName}
-Pending amount: ${input.pendingShares}
-Payment link: ${input.appBaseUrl}
-Order ID: ${input.orderId}
+People who still need to pay:
+${lines}
+Payment link: ${input.link}
 
-Keep the message polite and concise.
-Do not claim payment has been completed.
+Rules:
+- Maximum 3 lines. At most 2 emojis.
+- Warm and light. Never pushy, never guilt-tripping.
+- Mention each pending person by name and include the link.
+- Mention only the people listed above. Never mention anyone else.
+- Do not claim that anyone has paid.
+- Return only the message text.
 `;
 }

@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { friendlyError } from "@/lib/errors";
+import { splitCents, toCents, centsToUsd } from "@/lib/money";
 
 type Product = {
   id: string;
@@ -26,6 +27,22 @@ function Spinner() {
   );
 }
 
+// Trim, swap "Me" for the buyer's own name (if given), drop empties and duplicates
+function cleanNames(raw: unknown[], myName: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    let n = String(item ?? "").trim();
+    if (!n) continue;
+    if (myName && n.toLowerCase() === "me") n = myName;
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
+}
+
 function ProductPageInner() {
   const { id } = useParams<{ id: string }>();
   const [product, setProduct] = useState<Product | null>(null);
@@ -38,6 +55,14 @@ function ProductPageInner() {
   const [buyerName, setBuyerName] = useState("");
   const [error, setError] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null); const payLock = useRef(false);
+
+  // Split (Phase 2)
+  const [splitNames, setSplitNames] = useState<string[] | null>(null);
+  const [splitting, setSplitting] = useState(false);
+  const [showSplitForm, setShowSplitForm] = useState(false);
+  const [splitInput, setSplitInput] = useState("");
+  const [splitFormError, setSplitFormError] = useState("");
+  const splitLock = useRef(false);
 
   useEffect(() => {
     fetch("/api/products", { cache: "no-store" })
@@ -55,12 +80,15 @@ function ProductPageInner() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [messages, sending, confirmCheckout]);
+  }, [messages, sending, confirmCheckout, splitNames]);
 
-  // If the buyer presses Back from PayPal, make the buttons usable again
+  // If the buyer presses Back from PayPal or the tracker, make the buttons usable again
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => {
-      if (e.persisted) { setPaying(false); payLock.current = false; }
+      if (e.persisted) {
+        setPaying(false); payLock.current = false;
+        setSplitting(false); splitLock.current = false;
+      }
     };
     window.addEventListener("pageshow", onShow);
     return () => window.removeEventListener("pageshow", onShow);
@@ -74,6 +102,7 @@ function ProductPageInner() {
     setInput("");
     setSending(true);
     setConfirmCheckout(false);
+    setSplitNames(null);
     setError("");
     try {
       const res = await fetch("/api/ai/chat", {
@@ -85,6 +114,10 @@ function ProductPageInner() {
       if (!res.ok) throw new Error(data.error || "chat failed");
       setMessages([...next, { role: "assistant", content: data.reply }]);
       if (data.action === "checkout") setConfirmCheckout(true);
+      if (data.action === "split" && Array.isArray(data.names)) {
+        const names = cleanNames(data.names, buyerName.trim()).slice(0, 8);
+        if (names.length >= 2) setSplitNames(names);
+      }
     } catch {
       setMessages([
         ...next,
@@ -96,7 +129,7 @@ function ProductPageInner() {
   }
 
   async function pay() {
-    if (payLock.current || !product) return; payLock.current = true;
+    if (payLock.current || splitLock.current || !product) return; payLock.current = true;
     setPaying(true);
     setError("");
     try {
@@ -113,6 +146,51 @@ function ProductPageInner() {
     } catch (e) {
       setError(friendlyError(e));
       { setPaying(false); payLock.current = false; }
+    }
+  }
+
+  // "Split with friends" form: buyer types the names
+  function submitSplitForm(e: React.FormEvent) {
+    e.preventDefault();
+    const names = cleanNames(splitInput.split(/[,\n]/), buyerName.trim());
+    if (names.length < 2) {
+      setSplitFormError("Please add at least 2 different names, separated by commas.");
+      return;
+    }
+    if (names.length > 8) {
+      setSplitFormError("You can split between 8 people at most.");
+      return;
+    }
+    setSplitFormError("");
+    setError("");
+    setConfirmCheckout(false);
+    setSplitNames(names);
+    setMessages((m) => [
+      ...m,
+      { role: "assistant", content: "Got it! Check the split below and confirm when you're ready." },
+    ]);
+  }
+
+  async function confirmSplit() {
+    if (splitLock.current || payLock.current || !product || !splitNames) return;
+    splitLock.current = true;
+    setSplitting(true);
+    setError("");
+    try {
+      const res = await fetch("/api/split", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: product.id, names: splitNames }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.orderId) {
+        throw new Error(data.error || "Something went wrong, please try again.");
+      }
+      window.location.href = "/split/" + data.orderId; // stays disabled until the page leaves
+    } catch (e) {
+      setError(friendlyError(e));
+      setSplitting(false);
+      splitLock.current = false;
     }
   }
 
@@ -135,6 +213,12 @@ function ProductPageInner() {
 
   const price = Number(product.price).toFixed(2);
   const details = Object.entries(product.details ?? {});
+
+  // Split preview: same maths as the server, so the buttons never disagree with the tracker
+  const shares = splitNames ? splitCents(toCents(Number(product.price)), splitNames.length) : [];
+  const uneven = shares.length > 0 && shares[0] !== shares[shares.length - 1];
+  const lowShare = shares.length ? centsToUsd(shares[shares.length - 1]) : "0.00";
+  const busy = paying || splitting;
 
   return (
     <main className="min-h-dvh bg-[#FAFAF8] text-[#202B29]">
@@ -179,12 +263,42 @@ function ProductPageInner() {
           />
           <button
             onClick={pay}
-            disabled={paying}
+            disabled={busy}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#0F766E] px-4 py-3 font-medium text-white disabled:opacity-60"
           >
             {paying && <Spinner />}
             {paying ? "Opening PayPal..." : "Buy now"}
           </button>
+          <button
+            type="button"
+            onClick={() => setShowSplitForm((v) => !v)}
+            disabled={busy}
+            className="mt-2 w-full rounded-xl border border-[#0F766E] bg-white px-4 py-3 font-medium text-[#0F766E] disabled:opacity-60"
+          >
+            Split with friends
+          </button>
+          {showSplitForm && (
+            <form onSubmit={submitSplitForm} className="mt-2 space-y-2 rounded-xl border bg-white p-3">
+              <label className="block text-sm font-medium text-gray-700">
+                Who is paying? Include yourself.
+              </label>
+              <input
+                value={splitInput}
+                onChange={(e) => setSplitInput(e.target.value)}
+                maxLength={200}
+                placeholder="e.g. Arun, Divya, Karthik"
+                className="w-full rounded-xl border p-3 text-base sm:text-sm"
+              />
+              {splitFormError && <p className="text-sm text-red-700">{splitFormError}</p>}
+              <button
+                type="submit"
+                disabled={busy || !splitInput.trim()}
+                className="w-full rounded-xl bg-[#0F766E] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
+              >
+                Continue
+              </button>
+            </form>
+          )}
           {error && (
             <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>
           )}
@@ -208,13 +322,32 @@ function ProductPageInner() {
             {confirmCheckout && (
               <button
                 onClick={pay}
-                disabled={paying}
+                disabled={busy}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0F766E] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
               >
                 {paying && <Spinner />}
                 {paying ? "Opening PayPal..." : "Confirm & pay $" + price}
               </button>
-            )} {confirmCheckout && error && (<p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>)}
+            )}
+            {splitNames && (
+              <div className="space-y-2">
+                <button
+                  onClick={confirmSplit}
+                  disabled={busy}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0F766E] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {splitting && <Spinner />}
+                  {splitting
+                    ? "Creating split..."
+                    : "Confirm split: " + splitNames.length + " people \u00D7 $" + lowShare}
+                </button>
+                <p className="text-center text-xs text-gray-500">
+                  {splitNames.join(", ")}
+                  {uneven && " \u2022 shares add up to exactly $" + price}
+                </p>
+              </div>
+            )}
+            {(confirmCheckout || splitNames) && error && (<p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>)}
             <div ref={bottomRef} />
           </div>
           <form
